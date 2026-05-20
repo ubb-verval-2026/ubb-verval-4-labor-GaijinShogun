@@ -26,15 +26,14 @@ public class PersonPageTests
         var webProjectPath = Path.GetFullPath(Path.Combine(
             Assembly.GetExecutingAssembly().Location,
             "../../../../../../src/DatesAndStuff.Web/DatesAndStuff.Web.csproj"
-            ));
+        ));
 
         var webProjFolderPath = Path.GetDirectoryName(webProjectPath);
 
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            //Arguments = $"run --project \"{webProjectPath}\"",
-            Arguments = "dotnet run --no-build",
+            Arguments = $"run --project \"{webProjectPath}\"", 
             WorkingDirectory = webProjFolderPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -42,11 +41,11 @@ public class PersonPageTests
         };
 
         _blazorProcess = Process.Start(startInfo);
-
-        // Wait for the app to become available
+        
         var client = new HttpClient();
         var timeout = TimeSpan.FromSeconds(30);
         var start = DateTime.Now;
+        bool isServerRunning = false;
 
         while (DateTime.Now - start < timeout)
         {
@@ -55,13 +54,19 @@ public class PersonPageTests
                 var result = client.GetAsync(BaseURL).Result;
                 if (result.IsSuccessStatusCode)
                 {
+                    isServerRunning = true;
                     break;
                 }
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 Thread.Sleep(1000);
             }
+        }
+        if (!isServerRunning)
+        {
+            var errorOutput = _blazorProcess?.StandardError.ReadToEnd();
+            throw new Exception($"A Blazor szerver nem indult el a {BaseURL} címen 30 másodperc alatt. Háttérfolyamat hibája: {errorOutput}");
         }
     }
 
@@ -97,40 +102,50 @@ public class PersonPageTests
         Assert.That(verificationErrors.ToString(), Is.EqualTo(""));
     }
 
-    [Test]
-    public void Person_SalaryIncrease_ShouldIncrease()
+    [TestCase("5", 5250)]
+    [TestCase("10", 5500)]
+    [TestCase("0", 5000)]
+    [TestCase("20", 6000)]
+    [TestCase("100", 10000)]
+    public void Person_SalaryIncrease_ShouldIncrease(string percentage, double expectedSalary)
     {
         // Arrange
         driver.Navigate().GoToUrl(BaseURL);
         driver.FindElement(By.XPath("//*[@data-test='PersonPageNavigation']")).Click();
 
         var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
-
-        var input = wait.Until(ExpectedConditions.ElementExists(By.XPath("//*[@data-test='SalaryIncreasePercentageInput']")));
-        input.Clear();
-        input.SendKeys("5");
+        
+        wait.IgnoreExceptionTypes(typeof(StaleElementReferenceException), typeof(NoSuchElementException));
 
         // Act
-        var submitButton = wait.Until(ExpectedConditions.ElementExists(By.XPath("//*[@data-test='SalaryIncreaseSubmitButton']")));
-        submitButton.Click();
-
+        wait.Until(d =>
+        {
+            var input = d.FindElement(By.XPath("//*[@data-test='SalaryIncreasePercentageInput']"));
+            input.Clear();
+            input.SendKeys(percentage);
+            return true;
+        });
+        
+        wait.Until(d =>
+        {
+            var submitButton = d.FindElement(By.XPath("//*[@data-test='SalaryIncreaseSubmitButton']"));
+            submitButton.Click();
+            return true;
+        });
 
         // Assert
-        var salaryLabel = wait.Until(ExpectedConditions.ElementExists(By.XPath("//*[@data-test='DisplayedSalary']")));
-        var salaryAfterSubmission = double.Parse(salaryLabel.Text);
-        salaryAfterSubmission.Should().BeApproximately(5250, 0.001);
-    }
-    private bool IsElementPresent(By by)
-    {
-        try
+        var salaryText = wait.Until(d =>
         {
-            driver.FindElement(by);
-            return true;
-        }
-        catch (NoSuchElementException)
-        {
-            return false;
-        }
+            var label = d.FindElement(By.XPath("//*[@data-test='DisplayedSalary']"));
+            
+            if (string.IsNullOrWhiteSpace(label.Text))
+                return null; 
+                
+            return label.Text;
+        });
+
+        var salaryAfterSubmission = double.Parse(salaryText);
+        salaryAfterSubmission.Should().BeApproximately(expectedSalary, 0.001);
     }
 
     private bool IsAlertPresent()
