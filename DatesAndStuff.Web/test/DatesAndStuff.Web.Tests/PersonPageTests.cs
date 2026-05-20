@@ -185,6 +185,7 @@ public class PersonPageTests
     
     [TestCase("-11")]
     [TestCase("-50")]
+    [TestCase("-10")]
     public void Person_SalaryIncrease_NegativeValue_ShouldShowErrorMessages(string invalidPercentage)
     {
         // Arrange
