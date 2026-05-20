@@ -26,15 +26,14 @@ public class PersonPageTests
         var webProjectPath = Path.GetFullPath(Path.Combine(
             Assembly.GetExecutingAssembly().Location,
             "../../../../../../src/DatesAndStuff.Web/DatesAndStuff.Web.csproj"
-            ));
+        ));
 
         var webProjFolderPath = Path.GetDirectoryName(webProjectPath);
 
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            //Arguments = $"run --project \"{webProjectPath}\"",
-            Arguments = "dotnet run --no-build",
+            Arguments = $"run --project \"{webProjectPath}\"", 
             WorkingDirectory = webProjFolderPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -42,11 +41,11 @@ public class PersonPageTests
         };
 
         _blazorProcess = Process.Start(startInfo);
-
-        // Wait for the app to become available
+        
         var client = new HttpClient();
         var timeout = TimeSpan.FromSeconds(30);
         var start = DateTime.Now;
+        bool isServerRunning = false;
 
         while (DateTime.Now - start < timeout)
         {
@@ -55,13 +54,19 @@ public class PersonPageTests
                 var result = client.GetAsync(BaseURL).Result;
                 if (result.IsSuccessStatusCode)
                 {
+                    isServerRunning = true;
                     break;
                 }
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 Thread.Sleep(1000);
             }
+        }
+        if (!isServerRunning)
+        {
+            var errorOutput = _blazorProcess?.StandardError.ReadToEnd();
+            throw new Exception($"A Blazor szerver nem indult el a {BaseURL} címen 30 másodperc alatt. Háttérfolyamat hibája: {errorOutput}");
         }
     }
 
@@ -97,40 +102,50 @@ public class PersonPageTests
         Assert.That(verificationErrors.ToString(), Is.EqualTo(""));
     }
 
-    [Test]
-    public void Person_SalaryIncrease_ShouldIncrease()
+    [TestCase("5", 5250)]
+    [TestCase("10", 5500)]
+    [TestCase("0", 5000)]
+    [TestCase("20", 6000)]
+    [TestCase("100", 10000)]
+    public void Person_SalaryIncrease_ShouldIncrease(string percentage, double expectedSalary)
     {
         // Arrange
         driver.Navigate().GoToUrl(BaseURL);
         driver.FindElement(By.XPath("//*[@data-test='PersonPageNavigation']")).Click();
 
         var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
-
-        var input = wait.Until(ExpectedConditions.ElementExists(By.XPath("//*[@data-test='SalaryIncreasePercentageInput']")));
-        input.Clear();
-        input.SendKeys("5");
+        
+        wait.IgnoreExceptionTypes(typeof(StaleElementReferenceException), typeof(NoSuchElementException));
 
         // Act
-        var submitButton = wait.Until(ExpectedConditions.ElementExists(By.XPath("//*[@data-test='SalaryIncreaseSubmitButton']")));
-        submitButton.Click();
-
+        wait.Until(d =>
+        {
+            var input = d.FindElement(By.XPath("//*[@data-test='SalaryIncreasePercentageInput']"));
+            input.Clear();
+            input.SendKeys(percentage);
+            return true;
+        });
+        
+        wait.Until(d =>
+        {
+            var submitButton = d.FindElement(By.XPath("//*[@data-test='SalaryIncreaseSubmitButton']"));
+            submitButton.Click();
+            return true;
+        });
 
         // Assert
-        var salaryLabel = wait.Until(ExpectedConditions.ElementExists(By.XPath("//*[@data-test='DisplayedSalary']")));
-        var salaryAfterSubmission = double.Parse(salaryLabel.Text);
-        salaryAfterSubmission.Should().BeApproximately(5250, 0.001);
-    }
-    private bool IsElementPresent(By by)
-    {
-        try
+        var salaryText = wait.Until(d =>
         {
-            driver.FindElement(by);
-            return true;
-        }
-        catch (NoSuchElementException)
-        {
-            return false;
-        }
+            var label = d.FindElement(By.XPath("//*[@data-test='DisplayedSalary']"));
+            
+            if (string.IsNullOrWhiteSpace(label.Text))
+                return null; 
+                
+            return label.Text;
+        });
+
+        var salaryAfterSubmission = double.Parse(salaryText);
+        salaryAfterSubmission.Should().BeApproximately(expectedSalary, 0.001);
     }
 
     private bool IsAlertPresent()
@@ -166,5 +181,139 @@ public class PersonPageTests
         {
             acceptNextAlert = true;
         }
+    }
+    
+    [TestCase("-11")]
+    [TestCase("-50")]
+    public void Person_SalaryIncrease_NegativeValue_ShouldShowErrorMessages(string invalidPercentage)
+    {
+        // Arrange
+        driver.Navigate().GoToUrl(BaseURL);
+        driver.FindElement(By.XPath("//*[@data-test='PersonPageNavigation']")).Click();
+
+        var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+        wait.IgnoreExceptionTypes(typeof(StaleElementReferenceException), typeof(NoSuchElementException));
+
+        // Act - Érték megadása
+        wait.Until(d =>
+        {
+            var input = d.FindElement(By.XPath("//*[@data-test='SalaryIncreasePercentageInput']"));
+            input.Clear();
+            input.SendKeys(invalidPercentage);
+            return true;
+        });
+
+        // Act - Mentés gomb
+        wait.Until(d =>
+        {
+            var submitButton = d.FindElement(By.XPath("//*[@data-test='SalaryIncreaseSubmitButton']"));
+            submitButton.Click();
+            return true;
+        });
+
+        // Assert - Oldal tetején
+        var topErrorMessage = wait.Until(d =>
+        {
+            var summary = d.FindElement(By.CssSelector(".validation-summary-errors, .validation-errors")); 
+            
+            if (string.IsNullOrWhiteSpace(summary.Text))
+                return null;
+                
+            return summary.Text;
+        });
+        
+        topErrorMessage.Should().NotBeNullOrWhiteSpace("Az oldal tetején meg kell jelennie a hibaüzenetnek.");
+
+        // Assert - Mező alatti
+        var fieldErrorMessage = wait.Until(d =>
+        {
+            var fieldError = d.FindElement(By.CssSelector(".validation-message")); 
+            
+            if (string.IsNullOrWhiteSpace(fieldError.Text))
+                return null;
+                
+            return fieldError.Text;
+        });
+        
+        fieldErrorMessage.Should().NotBeNullOrWhiteSpace("A beviteli mező alatt meg kell jelennie a hibaüzenetnek.");
+    }
+    [Test]
+    public void Person_SalaryIncrease_ExactlyMinusTen_ShouldNotModifySalaryButShowNoError()
+    {
+        // Arrange
+        driver.Navigate().GoToUrl(BaseURL);
+        driver.FindElement(By.XPath("//*[@data-test='PersonPageNavigation']")).Click();
+
+        var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+        wait.IgnoreExceptionTypes(typeof(StaleElementReferenceException), typeof(NoSuchElementException));
+
+        // Act 
+        wait.Until(d =>
+        {
+            var input = d.FindElement(By.XPath("//*[@data-test='SalaryIncreasePercentageInput']"));
+            input.Clear();
+            input.SendKeys("-10");
+            return true;
+        });
+
+        wait.Until(d =>
+        {
+            var submitButton = d.FindElement(By.XPath("//*[@data-test='SalaryIncreaseSubmitButton']"));
+            submitButton.Click();
+            return true;
+        });
+
+        // Assert 
+        var salaryLabel = wait.Until(d => d.FindElement(By.XPath("//*[@data-test='DisplayedSalary']")));
+        var salaryAfterSubmission = double.Parse(salaryLabel.Text);
+        salaryAfterSubmission.Should().BeApproximately(5000, 0.001);
+    }
+    
+    [Test]
+    public void Blazedemo_MexicoCityToDublin_CheapFlight_ShouldTakeScreenshot()
+    {
+        // Arrange
+        double maxPrice = 450.00;
+        string screenshotPath = "/home/richard/Desktop/cheap_flight.png";
+
+        driver.Navigate().GoToUrl("https://blazedemo.com");
+        var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+        
+        var fromPortDropdown = wait.Until(d => d.FindElement(By.Name("fromPort")));
+        new SelectElement(fromPortDropdown).SelectByValue("Mexico City");
+
+        var toPortDropdown = wait.Until(d => d.FindElement(By.Name("toPort")));
+        new SelectElement(toPortDropdown).SelectByValue("Dublin");
+
+        var submitButton = driver.FindElement(By.CssSelector("input[type='submit']"));
+        submitButton.Click();
+
+        // Act
+        wait.Until(d => d.FindElement(By.TagName("table")));
+        var flightRows = driver.FindElements(By.CssSelector("table.table tbody tr"));
+
+        bool foundCheapFlight = false;
+
+        foreach (var row in flightRows)
+        {
+            var priceCell = row.FindElement(By.CssSelector("td:nth-child(7)"));
+            
+            string priceText = priceCell.Text.Replace("$", "").Trim();
+            
+            if (double.TryParse(priceText, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double price))
+            {
+                if (price < maxPrice)
+                {
+                    foundCheapFlight = true;
+                    
+                    var screenshot = ((ITakesScreenshot)driver).GetScreenshot();
+                    screenshot.SaveAsFile(screenshotPath);
+                    break; 
+                }
+            }
+        }
+
+        // Assert
+        foundCheapFlight.Should().BeTrue($" kellett volna lennie {maxPrice} dollár alatti járatnak");
     }
 }
