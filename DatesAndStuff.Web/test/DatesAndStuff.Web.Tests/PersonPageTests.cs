@@ -182,4 +182,59 @@ public class PersonPageTests
             acceptNextAlert = true;
         }
     }
+    
+    [TestCase("-11")]
+    [TestCase("-50")]
+    public void Person_SalaryIncrease_NegativeValue_ShouldShowErrorMessages(string invalidPercentage)
+    {
+        // Arrange
+        driver.Navigate().GoToUrl(BaseURL);
+        driver.FindElement(By.XPath("//*[@data-test='PersonPageNavigation']")).Click();
+
+        var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+        wait.IgnoreExceptionTypes(typeof(StaleElementReferenceException), typeof(NoSuchElementException));
+
+        // Act - Érték megadása
+        wait.Until(d =>
+        {
+            var input = d.FindElement(By.XPath("//*[@data-test='SalaryIncreasePercentageInput']"));
+            input.Clear();
+            input.SendKeys(invalidPercentage);
+            return true;
+        });
+
+        // Act - Mentés gomb
+        wait.Until(d =>
+        {
+            var submitButton = d.FindElement(By.XPath("//*[@data-test='SalaryIncreaseSubmitButton']"));
+            submitButton.Click();
+            return true;
+        });
+
+        // Assert - Oldal tetején
+        var topErrorMessage = wait.Until(d =>
+        {
+            var summary = d.FindElement(By.CssSelector(".validation-summary-errors, .validation-errors")); 
+            
+            if (string.IsNullOrWhiteSpace(summary.Text))
+                return null;
+                
+            return summary.Text;
+        });
+        
+        topErrorMessage.Should().NotBeNullOrWhiteSpace("Az oldal tetején meg kell jelennie a hibaüzenetnek.");
+
+        // Assert - Mező alatti
+        var fieldErrorMessage = wait.Until(d =>
+        {
+            var fieldError = d.FindElement(By.CssSelector(".validation-message")); 
+            
+            if (string.IsNullOrWhiteSpace(fieldError.Text))
+                return null;
+                
+            return fieldError.Text;
+        });
+        
+        fieldErrorMessage.Should().NotBeNullOrWhiteSpace("A beviteli mező alatt meg kell jelennie a hibaüzenetnek.");
+    }
 }
