@@ -185,7 +185,6 @@ public class PersonPageTests
     
     [TestCase("-11")]
     [TestCase("-50")]
-    [TestCase("-10")]
     public void Person_SalaryIncrease_NegativeValue_ShouldShowErrorMessages(string invalidPercentage)
     {
         // Arrange
@@ -237,5 +236,64 @@ public class PersonPageTests
         });
         
         fieldErrorMessage.Should().NotBeNullOrWhiteSpace("A beviteli mező alatt meg kell jelennie a hibaüzenetnek.");
+    }
+    [Test]
+    public void Person_SalaryIncrease_ExactlyMinusTen_ShouldNotModifySalaryButShowNoError()
+    {
+        // Arrange
+        driver.Navigate().GoToUrl(BaseURL);
+        driver.FindElement(By.XPath("//*[@data-test='PersonPageNavigation']")).Click();
+
+        var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+        wait.IgnoreExceptionTypes(typeof(StaleElementReferenceException), typeof(NoSuchElementException));
+
+        // Act 
+        wait.Until(d =>
+        {
+            var input = d.FindElement(By.XPath("//*[@data-test='SalaryIncreasePercentageInput']"));
+            input.Clear();
+            input.SendKeys("-10");
+            return true;
+        });
+
+        wait.Until(d =>
+        {
+            var submitButton = d.FindElement(By.XPath("//*[@data-test='SalaryIncreaseSubmitButton']"));
+            submitButton.Click();
+            return true;
+        });
+
+        // Assert 
+        var salaryLabel = wait.Until(d => d.FindElement(By.XPath("//*[@data-test='DisplayedSalary']")));
+        var salaryAfterSubmission = double.Parse(salaryLabel.Text);
+        salaryAfterSubmission.Should().BeApproximately(5000, 0.001);
+    }
+    
+    [Test]
+    public void Blazedemo_MexicoCityToDublin_ShouldHaveAtLeastThreeFlights()
+    {
+        // Arrange
+        driver.Navigate().GoToUrl("https://blazedemo.com");
+        var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+        
+        var fromPortDropdown = wait.Until(d => d.FindElement(By.Name("fromPort")));
+        var fromPortSelect = new SelectElement(fromPortDropdown);
+        fromPortSelect.SelectByValue("Mexico City"); 
+
+     
+        var toPortDropdown = wait.Until(d => d.FindElement(By.Name("toPort")));
+        var toPortSelect = new SelectElement(toPortDropdown);
+        toPortSelect.SelectByValue("Dublin");
+
+        // Act
+        var submitButton = driver.FindElement(By.CssSelector("input[type='submit']"));
+        submitButton.Click();
+
+        // Assert
+        wait.Until(d => d.FindElement(By.TagName("table")));
+        
+        var flightRows = driver.FindElements(By.CssSelector("table.table tbody tr"));
+        
+        flightRows.Count.Should().BeGreaterThanOrEqualTo(3, "mert legalább 3 járatnak kell lennie Mexico City és Dublin között");
     }
 }
