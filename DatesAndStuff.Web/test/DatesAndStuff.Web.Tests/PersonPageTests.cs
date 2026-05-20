@@ -270,30 +270,50 @@ public class PersonPageTests
     }
     
     [Test]
-    public void Blazedemo_MexicoCityToDublin_ShouldHaveAtLeastThreeFlights()
+    public void Blazedemo_MexicoCityToDublin_CheapFlight_ShouldTakeScreenshot()
     {
         // Arrange
+        double maxPrice = 450.00;
+        string screenshotPath = "/home/richard/Desktop/cheap_flight.png";
+
         driver.Navigate().GoToUrl("https://blazedemo.com");
         var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
         
         var fromPortDropdown = wait.Until(d => d.FindElement(By.Name("fromPort")));
-        var fromPortSelect = new SelectElement(fromPortDropdown);
-        fromPortSelect.SelectByValue("Mexico City"); 
+        new SelectElement(fromPortDropdown).SelectByValue("Mexico City");
 
-     
         var toPortDropdown = wait.Until(d => d.FindElement(By.Name("toPort")));
-        var toPortSelect = new SelectElement(toPortDropdown);
-        toPortSelect.SelectByValue("Dublin");
+        new SelectElement(toPortDropdown).SelectByValue("Dublin");
 
-        // Act
         var submitButton = driver.FindElement(By.CssSelector("input[type='submit']"));
         submitButton.Click();
 
-        // Assert
+        // Act
         wait.Until(d => d.FindElement(By.TagName("table")));
-        
         var flightRows = driver.FindElements(By.CssSelector("table.table tbody tr"));
-        
-        flightRows.Count.Should().BeGreaterThanOrEqualTo(3, "mert legalább 3 járatnak kell lennie Mexico City és Dublin között");
+
+        bool foundCheapFlight = false;
+
+        foreach (var row in flightRows)
+        {
+            var priceCell = row.FindElement(By.CssSelector("td:nth-child(7)"));
+            
+            string priceText = priceCell.Text.Replace("$", "").Trim();
+            
+            if (double.TryParse(priceText, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double price))
+            {
+                if (price < maxPrice)
+                {
+                    foundCheapFlight = true;
+                    
+                    var screenshot = ((ITakesScreenshot)driver).GetScreenshot();
+                    screenshot.SaveAsFile(screenshotPath);
+                    break; 
+                }
+            }
+        }
+
+        // Assert
+        foundCheapFlight.Should().BeTrue($" kellett volna lennie {maxPrice} dollár alatti járatnak");
     }
 }
